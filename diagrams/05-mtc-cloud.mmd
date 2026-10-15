@@ -1,0 +1,38 @@
+flowchart TB
+    subgraph Frontend["Frontend — React 19 + Redux Toolkit + Tailwind"]
+        UI["Dashboard: ResourceUsage, Charts,\nUsageHistory, VMPlanSelector, AdminConsole"]
+        POLL["useVMMetricsPolling\n(10s interval)"]
+        DEMO["DemoBanner\nbackend-less demo mode"]
+        UI --> POLL
+    end
+
+    subgraph Backend["Backend — Django 6 + DRF"]
+        AUTH["JWT auth (/v1/register, /v1/token)"]
+        RES["Resource lifecycle API\nCREATING -> RUNNING -> STOPPED -> ERROR -> DELETING -> RESTORING"]
+        SNAP["Snapshot management"]
+        TENANT["Tenant quotas\n(CPU / RAM / instance-count / disk)"]
+        CELERY["Celery workers"]
+        REDIS[(Redis)]
+        PG[(PostgreSQL)]
+        AUTH --> RES
+        RES --> TENANT
+        RES -->|async create/start/stop/delete/snapshot| CELERY
+        CELERY --> REDIS
+        RES --> PG
+        RES --> SNAP
+    end
+
+    POLL -->|/v1/resources, /v1/health| RES
+    UI -->|REST, OpenAPI/Swagger via drf-spectacular| AUTH
+
+    subgraph Hypervisor["Hypervisor agent — Rust (Axum + bollard)"]
+        API_AGENT["HTTP API: create/start/stop container"]
+        DISK["Loop-device disk lifecycle\nmkfs.ext4, mount -o loop, online resize"]
+        DOCKERD["Docker Engine API"]
+        API_AGENT --> DISK
+        API_AGENT --> DOCKERD
+    end
+
+    CELERY -->|over Tailscale / SOCKS5 proxy| API_AGENT
+
+    CI["GitHub Actions CI\nDjango checks + pytest"] -.-> Backend

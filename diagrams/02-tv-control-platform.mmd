@@ -1,0 +1,38 @@
+flowchart TB
+    subgraph Device["Field device — Orange Pi bolted to an Android TV"]
+        TV["Android TV (MediaTek / other chipset)\nHDMI inputs, DTV/ATV sources"]
+        AGENT["TVControl_client (Flask, gunicorn)\nOperationHandler registry: volume/source/power/GPIO/remote"]
+        ADB["pure-python-adb\nretry-with-reconnect (5x connect, 3x per-command)"]
+        GPIO["lgpio relay control\n(hardware power fallback)"]
+        WATCHDOG["shared_check.sh\nsystemd unit OUTSIDE the container\npolls flag files -> docker restart / reboot"]
+        AGENT --> ADB
+        AGENT --> GPIO
+        ADB -->|dumpsys tv_input, DPAD navigation| TV
+        GPIO -->|physical relay toggle| TV
+        WATCHDOG -.->|docker compose down/up, sudo reboot| AGENT
+    end
+
+    subgraph Server["Server — Django + ASGI/Daphne + Channels"]
+        WS["ClientConsumer (WebSocket)\nCLIENT_CHANNELS: client_id -> channel"]
+        RPC["send_command_to_client()\nUUID request_id, queue.Queue(maxsize=1)\nsync-over-async RPC bridge, 10s timeout -> 504"]
+        HMAC_CHECK["HMAC-SHA256 response verification\nWS_SIGNATURE_SKEW window"]
+        EDITOR["editor app\nAvailableWidget catalog (25 types)\nLayoutWidget drag-and-drop positions"]
+        OTA["GitHub App OTA\nJWT(RS256) -> installation token -> git_update WS command"]
+        DB[(PostgreSQL)]
+        REDIS[(Redis / channels_redis)]
+        WS --> HMAC_CHECK
+        RPC --> WS
+        EDITOR --> DB
+        WS --> REDIS
+    end
+
+    AGENT <-->|signed WebSocket RPC| WS
+    OTA -->|pushes authenticated update command, device never holds long-lived token| AGENT
+
+    subgraph Console["Operator web console"]
+        DASH["Dashboard: TV/TVGroup/TVLayout views"]
+        BUILDER["Visual card/widget layout editor"]
+    end
+
+    DASH -->|REST + login-required middleware| RPC
+    BUILDER --> EDITOR

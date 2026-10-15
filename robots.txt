@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://mdedz.github.io/portfolio/sitemap.xml

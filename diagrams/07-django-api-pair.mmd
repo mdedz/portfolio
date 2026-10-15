@@ -1,0 +1,36 @@
+flowchart TB
+    subgraph HotelBooking["hotel_booking"]
+        RVIEWS["Server-rendered views\nrooms_list, book_room, my_bookings"]
+        RAPI["Versioned REST API\nauth.py / rooms.py / bookings.py / filters.py"]
+        RMODEL["Booking.clean()\ninterval-overlap validation:\nstart__lt=end AND end__gt=start,\nexcludes own PK, filtered to active"]
+        RJWT["JWT auth (simplejwt)"]
+        RDOC["drf-spectacular\nSwagger / ReDoc"]
+        RPG[(PostgreSQL)]
+        RVIEWS --> RMODEL
+        RAPI --> RJWT
+        RAPI --> RMODEL
+        RMODEL --> RPG
+    end
+
+    subgraph WeatherApp["weather_app"]
+        WAPI["Weather lookup endpoint"]
+        WCACHE["django-redis cache layer\nserved_from_cache flag"]
+        WRATE["django-ratelimit\nper-IP throttling -> 429"]
+        WLOG["python-json-logger\nstructured logs: latency, cache hits"]
+        WHEALTH["/health/\nchecks DB + Redis + external API + latency"]
+        WHIST["Filterable/paginated/CSV-exportable\nquery history"]
+        WOWM["OpenWeatherMap API"]
+        WPG[(PostgreSQL)]
+        WREDIS[(Redis)]
+        WAPI --> WCACHE --> WREDIS
+        WAPI --> WRATE
+        WAPI -->|cache miss| WOWM
+        WAPI --> WPG
+        WPG --> WHIST
+        WHEALTH --> WPG
+        WHEALTH --> WREDIS
+        WHEALTH --> WOWM
+    end
+
+    CI1["GitHub Actions CI\nreal Postgres service container\npre-commit + flake8 + black + pytest"] -.-> HotelBooking
+    CI2["GitHub Actions CI\nbuilds Docker images, waits for DB/Redis,\nmigrates, seeds cities, runs tests"] -.-> WeatherApp

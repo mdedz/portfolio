@@ -1,0 +1,31 @@
+flowchart TB
+    subgraph CLI["headhunter-automation (Python CLI, Poetry-packaged)"]
+        AUTH["OAuth authenticate + token refresh"]
+        FETCH["Fetch recommended/similar vacancies\n25+ filter flags: salary, schedule, geo, industry..."]
+        RELEVANCE["Relevance filter\nLLM answers 0/1, fail-open on ambiguous response"]
+        COVER["Cover-letter generator\nBeautifulSoup-stripped vacancy HTML -> structured prompt"]
+        SUBMIT["Apply + rate-limited submission\nrandomized 1-5s interval, page-fetch backoff"]
+        BLOCKDB[(BlockedVacanciesDB\nlocal persistence of irrelevant vacancies)]
+        AUTH --> FETCH --> RELEVANCE --> COVER --> SUBMIT
+        RELEVANCE --> BLOCKDB
+    end
+
+    subgraph LLMLayer["LLM abstraction (BaseLLM)"]
+        GROQ["GroqLLM.send_message()"]
+        RETRY["Truncation protocol:\nmodel marks <END> tag\nmissing tag -> 'continue from where you left off'\nretry up to 3x, concatenate, strip tag"]
+        GROQ --> RETRY
+    end
+
+    RELEVANCE --> LLMLayer
+    COVER --> LLMLayer
+
+    subgraph JobBoard["hh.ru API"]
+        VAC["Vacancies / recommendations"]
+        MSG["Employer chat messages"]
+    end
+
+    FETCH <--> VAC
+    SUBMIT --> VAC
+    CLI -->|LLM-generated replies| MSG
+
+    CI["GitHub Actions CI\npoetry install + pytest --cov, ruff/mypy --strict/black/pre-commit"] -.-> CLI

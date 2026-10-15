@@ -1,0 +1,30 @@
+flowchart LR
+    subgraph Floor["Casino floor hardware"]
+        SLOT["Slot machines\n(serial accounting meters)"]
+    end
+
+    subgraph Collector["Edge collector (Python)"]
+        POLL["Serial polling agent\ncustom binary framing + CRC checksum"]
+        BUFFER["Local buffer + auto-reconnect\non DB outage"]
+        POLL --> BUFFER
+    end
+
+    SLOT -->|serial / RS-232| POLL
+
+    subgraph Backend["Backend"]
+        DB[(Relational database\naccounting + jackpot data model)]
+        ADMIN["Admin web application\ncashier / staff / game-day / player tracking"]
+        ADMIN --> DB
+    end
+
+    BUFFER -->|resilient write, buffer-and-retry on outage| DB
+
+    subgraph Jackpot["Jackpot subsystem"]
+        LOGIC["Jackpot payout logic\n(server-side, probability-based)"]
+        DISPLAY["Physical jackpot display application\nanimated counter"]
+        LOGIC -->|win event, push protocol| DISPLAY
+    end
+
+    DB --> LOGIC
+
+    CHAOS["Chaos test: simulated DB outage\nvalidates buffer/reconnect logic"] -.-> Collector

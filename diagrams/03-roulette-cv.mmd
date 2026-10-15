@@ -1,0 +1,50 @@
+flowchart TB
+    CAM["Camera feed (RTSP / recorded video)"]
+
+    subgraph Capture["Capture thread"]
+        GRAB["Dedicated video capture thread\natomic frame pointer hand-off"]
+    end
+
+    subgraph Inference["Inference thread — Rockchip NPU (RKNN)"]
+        MASK["Pocket-ring annulus mask\n(computed from calibration, suppresses glare/background)"]
+        YOLO["YOLO-style detector\nclasses: ball, green-zero"]
+        MASK --> YOLO
+    end
+
+    subgraph Engine["RouletteEngine"]
+        PREDICT["predict_number()\nangle -> nearest pocket, zero-offset, phase-shift correction"]
+        ZTRACK["ZeroTracker\nEMA angular velocity -> spin/slow/settle state"]
+        STABILITY["Stability gate\ncircular stddev, position spread vs pocket radius,\nweighted confidence, neighbor-pocket margin"]
+        PREDICT --> STABILITY
+        ZTRACK --> STABILITY
+    end
+
+    subgraph Calibration["Calibration & drift detection"]
+        CALSVC["calibrator_service\nbinned detections, variance tracking,\nreadiness gates (outer_med<0.12, inner_med<0.12)"]
+        HEALTH["CalibrationHealthMonitor\nrolling metrics -> tracking_health_score (0-100)"]
+        VALIDATOR["CalibrationValidator (runtime)\nindependent drift score, circular statistics,\nVALID/SUSPECT/INVALID hysteresis"]
+    end
+
+    GRAB --> MASK
+    YOLO --> Engine
+    CALSVC -.->|calibration.json| MASK
+    HEALTH -->|GET /api/tracking/health| API
+    VALIDATOR --> STABILITY
+
+    subgraph Persistence["Output"]
+        SQLITE[(SQLite\nevery accepted result + frame snapshot)]
+        RECORDER["Auto MP4 recorder\ngated on sustained speed + zero-motion thresholds"]
+        API["HTTP/MJPEG control API\n/api/calibration/*, /api/prediction/*"]
+        HTTP_OUT["libcurl POST to server_url\nconfirmed number"]
+    end
+
+    STABILITY --> SQLITE
+    STABILITY --> RECORDER
+    STABILITY --> HTTP_OUT
+    STABILITY --> API
+
+    subgraph GUI["roulette-gui (React + TS)"]
+        DASH["Calibration progress, stream viewer,\nWebSocket spin history"]
+    end
+
+    API <-->|typed client, exact endpoint contract| DASH

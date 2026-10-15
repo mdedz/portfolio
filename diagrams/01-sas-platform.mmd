@@ -1,0 +1,45 @@
+flowchart TB
+    subgraph EGM["Electronic Gaming Machine (Aristocrat / Banilla / IGT SAS 6.02 cabinets)"]
+        SASPORT["SAS serial port (RS-232, 19200 8E1)"]
+    end
+
+    subgraph EdgeA["Edge Collector — Raspberry Pi / mini-PC (Python)"]
+        SVC["SASCollectorService-usa\nPROFILE_LEGACY / PROFILE_SAS_602_STRICT / PROFILE_ADAPTIVE\nCRC16-Kermit framing, TITO redemption, MARK/SPACE wakeup"]
+        OUTBOX["SQLite durable outbox\n(offline-first write-ahead queue)"]
+        ENROLL_C["Enrollment client\nEd25519 keypair (device.key, 0600)"]
+        SVC --> OUTBOX
+        SVC --> ENROLL_C
+    end
+
+    subgraph EdgeB["Edge Collector — ESP32 (C, FreeRTOS/ESP-IDF)"]
+        FW["esp32-collector firmware\ncomponents: sas / accounting / network / storage"]
+        CRYPTO["Vendored TweetNaCl\n(ed25519.c, sha256.c) — same protocol as Python"]
+        FW --> CRYPTO
+    end
+
+    SASPORT -->|SAS Long Poll / General Poll| SVC
+    SASPORT -->|UART1, GPIO16/17| FW
+
+    subgraph Backend["SAS-backend (FastAPI, control-plane only)"]
+        API["/api/v1 REST\ntenancy, enrollment, device, machines, reports, summary"]
+        AUTH["Ed25519 challenge/response\nProof-of-possession -> collector JWT (typ=collector)"]
+        HUB["SasIoHub\nin-memory live TX/RX event fan-out"]
+        DB[(PostgreSQL\nmachines, sas_readings, sas_events,\nmachine_money_transactions, commands)]
+        API --> AUTH
+        API --> HUB
+        API --> DB
+    end
+
+    OUTBOX -->|sync when online| DB
+    ENROLL_C -->|1. challenge 2. signed proof 3. collector JWT| AUTH
+    CRYPTO -->|same Ed25519 enrollment protocol| AUTH
+    SVC -->|queued MachineCommand poll/ack| API
+
+    subgraph Frontend["SAS-frontend (React 19 + Vite + TS)"]
+        UI["Dashboard / machines / collectors / cashouts / reports"]
+        IOCONSOLE["SasIoConsole\nlive/reconnecting/disconnected"]
+        UI --> IOCONSOLE
+    end
+
+    API -->|/api/v1 JWT bearer| UI
+    HUB -->|live SAS TX/RX stream| IOCONSOLE
